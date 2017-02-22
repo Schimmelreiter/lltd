@@ -46,4 +46,6 @@
     TLVDEF( assns_t,      accesspt_assns,      , 0x16, Access_unset, FALSE ) // RLS: Large_TLV only
     TLVDEF( lg_icon_t,    jumbo_icon,          , 0x18, Access_dynamic, FALSE ) // RLS: Large_TLV only
 //    TLVDEF( uint16_t,     sees_max,            , 0x19, Access_unset, TRUE )
+#ifdef HAVE_TABLE
     TLVDEF( comptbl_t,    component_tbl,       , 0x1A, Access_unset, FALSE ) // RLS: Large_TLV only
+#endif

@@ -1484,7 +1484,7 @@ int
 get_component_tbl(void *data)
 {
 /*    TLVDEF( comptbl_t,    component_tbl,       , 0x1A, Access_unset, FALSE ) */
-
+#ifdef HAVE_TABLE
     comptbl_t    *cmptbl = (comptbl_t*)data;
     
     uint16_t    cur_mode;
@@ -1495,7 +1495,7 @@ get_component_tbl(void *data)
     char       *interface = g_interface;
    
     cmptbl->version = 0x01;
-    cmptbl->bridge_behavior = 0x03;            // all packets transiting the bridge are seen by Responder
+    cmptbl->bridge_behavior = 0x00;            // all packets transiting the bridge are seen by Responder
 //    cmptbl->link_speed = htonl((uint32_t)(0xFFFFFFFF));     // units of 100bps
 
     if (interface == NULL) interface = dflt_if;
@@ -1527,4 +1527,7 @@ get_component_tbl(void *data)
     memcpy(&cmptbl->radios->BSSID, &bssid, sizeof(etheraddr_t));
 
     return TLV_GET_SUCCEEDED;
+#else
+    return TLV_GET_FAILED;
+#endif
 }
