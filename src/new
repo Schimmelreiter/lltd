@@ -1,0 +1,345 @@
+--- osl-linux.c	2015-04-18 14:43:04.072557000 +0200
++++ osl-enigma2.c	2016-04-30 19:55:30.453775500 +0200
+@@ -31,6 +31,16 @@
+ #include <netinet/in.h>
+ #include <signal.h>
+ 
++// New
++// #include <net/if.h>
++#include <linux/if.h>
++#include <netinet/ip.h>
++#include <linux/ethtool.h>
++#include <linux/sockios.h>
++
++#define IF_NAMESIZE	16
++#define DUPLEX_UNKNOWN		0xFF
++
+ /* We use the POSIX.1e capability subsystem to drop all but
+  * CAP_NET_ADMIN rights */
+ //#define HAVE_CAPABILITIES
+@@ -38,15 +48,16 @@
+ # include <sys/capability.h>
+ #endif
+ 
++
+ /* Do you have wireless extensions available? (most modern kernels do) */
+ #define HAVE_WIRELESS
+ 
+ #ifdef HAVE_WIRELESS
+   /* for get access-point address (BSSID) and infrastructure mode */
+ # include <linux/wireless.h>
+-#else /* ! HAVE_WIRELESS */
+-  /* still want struct ifreq and friends */
+-# include <net/if.h>
++// #else /* ! HAVE_WIRELESS */
++//  /* still want struct ifreq and friends */
++//# include <net/if.h>
+ #endif /* ! HAVE_WIRELESS */
+ 
+ 
+@@ -64,6 +75,135 @@
+ #include "packetio.h"
+ 
+ /* helper functions */
++struct interface {
++    int     index;
++    int     flags;      /* IFF_UP etc. */
++    long    speed;      /* Mbps; -1 is unknown */
++    int     duplex;     /* DUPLEX_FULL, DUPLEX_HALF, or unknown */
++    char    name[IF_NAMESIZE + 1];
++};
++
++static int get_interface_common(const int fd, struct ifreq *const ifr, struct interface *const info)
++{
++    struct ethtool_cmd  cmd;
++    int                 result;
++
++    /* Interface flags. */
++    if (ioctl(fd, SIOCGIFFLAGS, ifr) == -1)
++        info->flags = 0;
++    else
++        info->flags = ifr->ifr_flags;
++
++    ifr->ifr_data = (void *)&cmd;
++    cmd.cmd = ETHTOOL_GSET; /* "Get settings" */
++    if (ioctl(fd, SIOCETHTOOL, ifr) == -1) {
++        /* Unknown */
++        info->speed = -1L;
++        info->duplex = DUPLEX_UNKNOWN;
++    } else {
++        info->speed = ethtool_cmd_speed(&cmd);
++        info->duplex = cmd.duplex;
++    }
++
++    do {
++        result = close(fd);
++    } while (result == -1 && errno == EINTR);
++    if (result == -1)
++        return errno;
++
++    return 0;
++}
++
++int get_interface_by_index(const int index, struct interface *const info)
++{
++    int             socketfd, result;
++    struct ifreq    ifr;
++
++    if (index < 1 || !info)
++        return errno = EINVAL;
++
++    socketfd = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
++    if (socketfd == -1)
++        return errno;
++
++    ifr.ifr_ifindex = index;
++    if (ioctl(socketfd, SIOCGIFNAME, &ifr) == -1) {
++        do {
++            result = close(socketfd);
++        } while (result == -1 && errno == EINTR);
++        return errno = ENOENT;
++    }
++
++    info->index = index;
++    strncpy(info->name, ifr.ifr_name, IF_NAMESIZE);
++    info->name[IF_NAMESIZE] = '\0';
++
++    return get_interface_common(socketfd, &ifr, info);
++}
++
++int get_interface_by_name(const char *const name, struct interface *const info)
++{
++    int             socketfd, result;
++    struct ifreq    ifr;
++
++    if (!name || !*name || !info)
++        return errno = EINVAL;
++
++    socketfd = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
++    if (socketfd == -1)
++        return errno;
++
++    strncpy(ifr.ifr_name, name, IF_NAMESIZE);
++    if (ioctl(socketfd, SIOCGIFINDEX, &ifr) == -1) {
++        do {
++            result = close(socketfd);
++        } while (result == -1 && errno == EINTR);
++        return errno = ENOENT;
++    }
++
++    info->index = ifr.ifr_ifindex;
++    strncpy(info->name, name, IF_NAMESIZE);
++    info->name[IF_NAMESIZE] = '\0';
++
++    return get_interface_common(socketfd, &ifr, info);
++}
++
++int isopen(int port)
++{
++  char buffer[200];
++  FILE *proc_net_tcp;
++  int i=0;
++  int local_port;
++  int ok=0;
++
++  proc_net_tcp=fopen("/proc/net/tcp6","r");
++  if(proc_net_tcp==NULL)
++  {
++    perror("fopen");
++    exit(1);
++  }
++  do
++  {
++    fgets(buffer,sizeof(buffer),proc_net_tcp);
++    if(i)
++    {
++      if(strlen(buffer)>25)
++      {
++	strtok(buffer," :");
++	strtok(NULL," :");
++	sscanf((char *)strtok(NULL," :"),"%X",&local_port);
++	if(port==local_port)
++	{
++	  ok=1;
++	  break;
++	}
++      }
++    }
++    i++;
++  } while (!feof(proc_net_tcp));
++  fclose(proc_net_tcp);
++  return ok;
++}
+ 
+ /* Convert from name "interface" to its index, or die on error. */
+ static int
+@@ -500,6 +640,11 @@
+ /*    TLVDEF( uint32_t,         net_flags,           ,   2,  Access_unset ) */
+ 
+     uint32_t   nf;
++    uint32_t   duplex;
++    uint32_t   http;
++    struct interface    iface;
++    char	dflt_if[] = {"br0"};
++    char       *interface = g_interface;
+ 
+ #define fLP  0x08000000         // Looping back outbound packets, if set
+ #define fMW  0x10000000         // Has management web page accessible via HTTP, if set
+@@ -507,10 +652,20 @@
+ #define fNX  0x40000000         // NAT private-side if set
+ #define fNP  0x80000000         // NAT public-side if set
+ 
++    if (interface == NULL) interface = dflt_if;
++    if (get_interface_by_name(interface, &iface) != 0) {
++      duplex = 0;
++    } else {
++      if (iface.duplex == DUPLEX_FULL) duplex = 0x20000000;
++    }
++
+     /* If your device has a management page at the url
+             http://<device-ip-address>/
+        then use the fMW flag, otherwise, remove it */
+-    nf = htonl(fFD | fMW);
++    http = 0;
++    if (isopen(80)) http = 0x10000000;
++
++    nf = htonl(duplex | http);
+ 
+     memcpy(data,&nf,4);
+ 
+@@ -532,8 +687,6 @@
+     return TLV_GET_SUCCEEDED;
+ }
+ 
+-#ifdef HAVE_WIRELESS
+-
+ /* Return TRUE on successful query, setting "wireless_mode" to:
+  *  0 = ad-hoc mode
+  *  1 = infrastructure mode ie ESS (Extended Service Set) mode
+@@ -542,6 +695,7 @@
+ int
+ get_wireless_mode(void *data)
+ {
++#ifdef HAVE_WIRELESS
+ /*    TLVDEF( uint32_t,         wireless_mode,       ,   4,  Access_unset ) */
+ 
+     uint32_t* wl_mode = (uint32_t*) data;
+@@ -610,6 +764,9 @@
+     END_TRACE
+ 
+     return TLV_GET_SUCCEEDED;
++#else /* ! HAVE_WIRELESS */
++    return TLV_GET_FAILED;
++#endif /* HAVE_WIRELESS */
+ }
+ 
+ 
+@@ -622,6 +779,7 @@
+ int
+ get_bssid(void *data)
+ {
++#ifdef HAVE_WIRELESS
+ /*    TLVDEF( etheraddr_t, bssid,               ,   5,  Access_unset ) */
+ 
+     etheraddr_t* bssid = (etheraddr_t*) data;
+@@ -656,6 +814,9 @@
+     END_TRACE
+ 
+     return TLV_GET_SUCCEEDED;
++#else /* ! HAVE_WIRELESS */
++    return TLV_GET_FAILED;
++#endif /* HAVE_WIRELESS */
+ }
+ 
+ 
+@@ -669,7 +830,6 @@
+     return TLV_GET_FAILED;
+ }
+ 
+-#endif /* HAVE_WIRELESS */
+ 
+ 
+ int
+@@ -758,6 +918,7 @@
+ 	found = 1;
+ 	if (!(strncmp(addr6, "2", 1))) break;
+ 	if (!(strncmp(addr6, "3", 1))) break;
++	found = 0;
+ 
+     }
+ 	if (!found) {
+@@ -777,6 +938,23 @@
+ 		break;
+ 	    }
+ 	}
++	if (!found) {
++	    while (fscanf(netinet6, "%4s%4s%4s%4s%4s%4s%4s%4s %02x %02x %02x %02x %20s\n",
++		addr6p[0], addr6p[1], addr6p[2], addr6p[3], addr6p[4],
++		addr6p[5], addr6p[6], addr6p[7], &if_idx, &plen, &scope,
++		&dad_status, devname) != EOF)
++	    {
++		scope = scope & 0x00f0;
++//		if (strcmp(devname, interface) != 0 || scope != 0x80)
++//		    continue;
++		sprintf(addr6, "%s:%s:%s:%s:%s:%s:%s:%s",
++		    addr6p[0], addr6p[1], addr6p[2], addr6p[3],
++		    addr6p[4], addr6p[5], addr6p[6], addr6p[7]);
++		inet_pton(AF_INET6, addr6, (struct sockaddr *) ipv6addr);
++		found = 1;
++		break;
++	    }
++	}
+ 
+ 
+ #if CAN_FOPEN_IN_SELECT_LOOP
+@@ -826,13 +1004,24 @@
+ /*    TLVDEF( uint32_t,         link_speed,          , 0xC,  Access_unset ) // 100bps increments */
+ 
+     uint32_t   speed;
++    struct interface    iface;
++    char	dflt_if[] = {"br0"};
++    char       *interface = g_interface;
+ 
+     /* OpenWRT:
+      * Since this is a bridged pair of interfaces (br0 = vlan0 + eth1), I am returning the
+      * wireless speed (eth1), which is the lowest of the upper limits on the two interfaces... */
+ 
+     // speed = htonl(540000);  // 54Mbit wireless... (540k x 100 = 54Mbs)
+-    speed = 0xFFFFFFFF;
++    // speed = 0xFFFFFFFF;
++    if (interface == NULL) interface = dflt_if;
++    if (interface == "lan") interface = "eth0";
++    interface = "eth0";
++    if (get_interface_by_name(interface, &iface) != 0) {
++      speed = 0xFFFFFFFF;     // units of 100bps
++    } else {
++      speed = htonl(iface.speed * 10000);
++    }
+ 
+     memcpy(data, &speed, 4);
+ 
+@@ -972,11 +1161,11 @@
+ /*    TLVDEF( ucs2char_t,       friendly_name,   [32], 0x11, Access_unset ) */
+ 
+     ucs2char_t * fname = (ucs2char_t*) data;
++	util_copy_ascii_to_ucs2(fname, 20, "Vu+ Solo²\0");
+ 
+-    return TLV_GET_FAILED;
++    return TLV_GET_SUCCEEDED;
+ }
+ 
+-
+ int
+ get_upnp_uuid(void *data)
+ {
+@@ -1164,8 +1353,9 @@
+     etheraddr_t bssid;
+     
+     cmptbl->version = 1;
+-    cmptbl->bridge_behavior = 0xFF;            // all packets transiting the bridge are seen by Responder
++    cmptbl->bridge_behavior = 0x00;            // all packets transiting the bridge are seen by Responder
+     cmptbl->link_speed = htonl((uint32_t)(0xFFFFFFFF));     // units of 100bps
++
+     cmptbl->radio_cnt = 1;
+     cmptbl->radios = &my_radio;
+ 
