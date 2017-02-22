@@ -1495,7 +1495,7 @@ get_component_tbl(void *data)
     char       *interface = g_interface;
    
     cmptbl->version = 0x01;
-    cmptbl->bridge_behavior = 0xFF;            // all packets transiting the bridge are seen by Responder
+    cmptbl->bridge_behavior = 0x03;            // all packets transiting the bridge are seen by Responder
 //    cmptbl->link_speed = htonl((uint32_t)(0xFFFFFFFF));     // units of 100bps
 
     if (interface == NULL) interface = dflt_if;
@@ -1503,12 +1503,12 @@ get_component_tbl(void *data)
 	interface = "eth0";
     }
 
+    cmptbl->link_speed = htonl(10000000);
     if (get_interface_by_name(interface, &iface) != 0) {
       cmptbl->link_speed = 0xFFFFFFFF;     // units of 100bps
     } else {
       cmptbl->link_speed = htonl(iface.speed * 10000);
     }
-    cmptbl->link_speed = htonl(10000000);
 
     cmptbl->radio_cnt = 1;
     cmptbl->radios = &my_radio;
