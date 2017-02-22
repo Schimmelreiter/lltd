@@ -830,7 +830,8 @@ get_physical_medium(void *data)
 
     uint32_t   pm;
 
-    pm = htonl(6);	// "ethernet"
+    //pm = htonl(6);	// "ethernet"
+    pm = htonl(71);	// "ethernet"
 
     memcpy(data,&pm,4);
 
