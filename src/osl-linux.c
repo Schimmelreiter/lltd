@@ -833,7 +833,7 @@ get_physical_medium(void *data)
     struct     interface    iface;
     char       *interface = g_interface;
 
-    if (strncmp(interface, "wlan", 4)) {
+    if (strncmp(interface, "eth", 3)) {
         pm = htonl(71);	// "WiFi"
     } else {
         pm = htonl(6);	// "ethernet"
