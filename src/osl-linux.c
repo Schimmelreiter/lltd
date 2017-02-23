@@ -829,10 +829,15 @@ get_physical_medium(void *data)
 /*    TLVDEF( uint32_t,         physical_medium,     ,   3,  Access_unset ) */
 
     uint32_t   pm;
+    uint32_t   nf;
+    struct     interface    iface;
+    char       *interface = g_interface;
 
-    //pm = htonl(6);	// "ethernet"
-    pm = htonl(71);	// "ethernet"
-
+    if (strncmp(interface, "wlan", 4)) {
+        pm = htonl(71);	// "WiFi"
+    } else {
+        pm = htonl(6);	// "ethernet"
+    }
     memcpy(data,&pm,4);
 
     return TLV_GET_SUCCEEDED;
