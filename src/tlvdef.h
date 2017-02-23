@@ -28,7 +28,7 @@
     TLVDEF( uint32_t,     physical_medium,     ,   3,  Access_unset, TRUE )
     TLVDEF( uint8_t,      wireless_mode,       ,   4,  Access_unset, TRUE )
     TLVDEF( etheraddr_t,  bssid,               ,   5,  Access_unset, TRUE )
-    TLVDEF( ssid_t,       ssid,                ,   6,  Access_unset, TRUE )
+//    TLVDEF( ssid_t,       ssid,                ,   6,  Access_unset, TRUE )
     TLVDEF( ipv4addr_t,   ipv4addr,            ,   7,  Access_unset, TRUE )
     TLVDEF( ipv6addr_t,   ipv6addr,            ,   8,  Access_unset, TRUE )
 //    TLVDEF( uint16_t,     max_op_rate,         ,   9,  Access_unset, TRUE )
