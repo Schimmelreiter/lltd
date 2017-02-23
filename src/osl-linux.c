@@ -802,7 +802,7 @@ get_net_flags(void *data)
 
     // Running on LAN bridge of an OpenWrt or Fritz router, signal "NAT private side"
     if ((strcmp(interface,"br-lan") == 0) || (strcmp(interface,"br0") == 0) || (strcmp(interface,"lan") == 0)) {
-      nat = 0x40000000; // | 0x80000000;
+      nat = 0x40000000 | 0x80000000;
       http = 0x10000000;
     }
 
