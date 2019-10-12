@@ -37,9 +37,9 @@
 // std function memcpy() fails on earliest ARM architectures (as used in Pika reference platform),
 // whenever the span is divisible by 4 and the source or destination address is not aligned to 4-bytes...
 #define memcpy(pDest, pSrc, cnt) {int i; for (i=0;i<(int)cnt;i++) ((uint8_t*)(pDest))[i] = ((uint8_t*)(pSrc))[i];}
-#define FMT_SIZET "%ld"
+#define FMT_SIZET "%u"
 #else
-#define FMT_SIZET "%ld"
+#define FMT_SIZET "%u"
 #endif
 
 #ifdef __ARM_PIKA_PAL__

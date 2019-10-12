@@ -25,6 +25,10 @@
 
 #include "globals.h"
 
+#ifndef SIOCGSTAMP
+#include <linux/sockios.h>
+#endif
+
 /* Static list of event_t's, sorted by their firing times */
 static event_t *Events;
 

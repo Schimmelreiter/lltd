@@ -30,6 +30,9 @@
 #include "statemachines.h"
 #include "packetio.h"
 
+#ifndef SIOCGSTAMP
+#include <linux/sockios.h>
+#endif
 extern void *
 fmt_base(uint8_t *buf, const etheraddr_t *srchw, const etheraddr_t *dsthw, lld2_tos_t tos,
 	 topo_opcode_t g_opcode, uint16_t seqnum, bool_t use_broadcast);
