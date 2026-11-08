@@ -207,14 +207,40 @@ static int fdb_request(const struct iface *ifc, int type, const mac_t *mac, uint
 	}
 }
 
+/* Interfaces that are not bridges: register the address as an additional
+ * unicast address of the interface (PACKET_MR_UNICAST = dev_uc_add()).
+ * Some NICs and switch chips (e.g. DSA user ports of Broadcom set-top boxes)
+ * drop unicast frames to foreign addresses even in promiscuous mode, but
+ * accept addresses in the unicast list. The kernel removes the entry again
+ * when the socket is closed. */
+static int uc_request(const struct iface *ifc, int add, const mac_t *mac)
+{
+	struct packet_mreq mr;
+
+	memset(&mr, 0, sizeof(mr));
+	mr.mr_ifindex = ifc->ifindex;
+	mr.mr_type = PACKET_MR_UNICAST;
+	mr.mr_alen = ETH_ADDR_LEN;
+	memcpy(mr.mr_address, mac->a, ETH_ADDR_LEN);
+	return setsockopt(ifc->fd, SOL_PACKET, add ? PACKET_ADD_MEMBERSHIP : PACKET_DROP_MEMBERSHIP,
+			  &mr, sizeof(mr));
+}
+
 static void fdb_add(void *ctx, const mac_t *mac)
 {
 	struct iface *ifc = ctx;
 	char m[18];
 
-	if (!ifc->bridge || !g.use_fdb)
+	if (!g.use_fdb)
 		return;
 	mac_format(mac, m);
+	if (!ifc->bridge) {
+		if (uc_request(ifc, 1, mac) != 0)
+			logx(1, "%s: unicast address add %s failed: %s", ifc->name, m, strerror(errno));
+		else
+			logx(3, "%s: unicast address add %s", ifc->name, m);
+		return;
+	}
 	if (fdb_request(ifc, RTM_NEWNEIGH, mac, ifc->vlan_filtering ? ifc->pvid : 0) != 0)
 		logx(1, "%s: bridge fdb add %s failed: %s", ifc->name, m, strerror(errno));
 	else
@@ -226,9 +252,16 @@ static void fdb_del(void *ctx, const mac_t *mac)
 	struct iface *ifc = ctx;
 	char m[18];
 
-	if (!ifc->bridge || !g.use_fdb)
+	if (!g.use_fdb)
 		return;
 	mac_format(mac, m);
+	if (!ifc->bridge) {
+		if (uc_request(ifc, 0, mac) != 0)
+			logx(3, "%s: unicast address del %s failed: %s", ifc->name, m, strerror(errno));
+		else
+			logx(3, "%s: unicast address del %s", ifc->name, m);
+		return;
+	}
 	if (fdb_request(ifc, RTM_DELNEIGH, mac, ifc->vlan_filtering ? ifc->pvid : 0) != 0 && errno != ENOENT)
 		logx(3, "%s: bridge fdb del %s failed: %s", ifc->name, m, strerror(errno));
 	else
@@ -402,8 +435,9 @@ static int setup_iface(struct iface *ifc, const mac_t *host_id)
 	ifc->resp.log_level = g.verbose;
 	mac_format(&info.mac, m);
 	logx(2, "%s: responding as %s%s%s", ifc->name, m,
-	     ifc->bridge ? " (bridge" : "",
-	     ifc->bridge ? (g.use_fdb ? ", fdb learning on)" : ", fdb learning off)") : "");
+	     ifc->bridge ? " (bridge" : " (",
+	     ifc->bridge ? (g.use_fdb ? ", fdb learning on)" : ", fdb learning off)")
+			 : (g.use_fdb ? "unicast address registration on)" : "unicast address registration off)"));
 	return 0;
 }
 
@@ -464,8 +498,9 @@ static void usage(FILE *out)
 		"  -w, --web                announce a management web page (http://<ip>/)\n"
 		"      --nat-private        interface is the private side of a NAT router\n"
 		"      --speed MBIT         report this link speed instead of the detected one\n"
-		"      --no-fdb             do not add Train sources to the bridge FDB\n"
-		"      --fdb-hold MS        how long a Train source stays in the FDB (default 5000)\n"
+		"      --no-fdb             do not register Train sources (bridge FDB or\n"
+		"                           unicast address list of the interface)\n"
+		"      --fdb-hold MS        how long a Train source stays registered (default 5000)\n"
 		"  -f, --foreground         do not daemonize, log to stderr\n"
 		"  -s, --syslog             log to syslog (default when daemonized)\n"
 		"  -p, --pidfile FILE       write the process ID to FILE\n"

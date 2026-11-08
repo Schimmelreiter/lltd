@@ -32,6 +32,11 @@ the Microsoft "Rally" porting kit (lld2d); it is still in the git history.
   itself, and DSA switches do not learn from frames injected by the CPU, so
   probes for X would otherwise be flooded or sent to the wrong port and the
   mapper's rounds become invalid. See [Bridges and DSA](#bridges-and-dsa).
+* Interfaces that are not bridges: the Train source is registered as an
+  additional unicast address of the interface for the same time
+  (`PACKET_MR_UNICAST`). This is needed for DSA user ports of set-top boxes
+  (e.g. Vu+ Ultimo4K, `eth0@sys0`, brcm-systemport), whose switch drops
+  unicast frames to foreign addresses even in promiscuous mode.
 * Promiscuous mode only while a mapper is associated (Command/Emit state).
 * No dependencies besides the C library; about 40 KB on MIPS.
 
@@ -53,8 +58,9 @@ lltd [options] -i <interface> [-i <interface> ...]
   -w, --web                announce a management web page (http://<ip>/)
       --nat-private        interface is the private side of a NAT router
       --speed MBIT         report this link speed instead of the detected one
-      --no-fdb             do not add Train sources to the bridge FDB
-      --fdb-hold MS        how long a Train source stays in the FDB (default 5000)
+      --no-fdb             do not register Train sources (bridge FDB or
+                           unicast address list of the interface)
+      --fdb-hold MS        how long a Train source stays registered (default 5000)
   -f, --foreground         do not daemonize, log to stderr
   -s, --syslog             log to syslog (default when daemonized)
   -p, --pidfile FILE       write the process ID to FILE

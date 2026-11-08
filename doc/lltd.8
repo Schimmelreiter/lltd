@@ -49,10 +49,11 @@ The interface is the private side of a NAT router.
 Report this link speed instead of the detected one.
 .TP
 .B \-\-no\-fdb
-Do not add Train source addresses to the bridge FDB.
+Do not register Train source addresses (bridge FDB entry on bridges,
+additional unicast address of the interface otherwise).
 .TP
 .BI \-\-fdb\-hold " MS"
-How long such an FDB entry stays (default 5000 ms).
+How long such a registration stays (default 5000 ms).
 .TP
 .BR \-f ", " \-\-foreground
 Do not daemonize; log to standard error unless \fB\-s\fR is given.
