@@ -75,6 +75,7 @@ lltd [options] -i <interface> [-i <interface> ...]
 The Debian and OpenATV packages are built by
 [.github/workflows/build.yml](.github/workflows/build.yml); the receiver
 builds link against glibc 2.17 symbols, so they run on old images too.
+An OpenEmbedded recipe for image builders is in `contrib/openembedded/`.
 
 ## Building
 
