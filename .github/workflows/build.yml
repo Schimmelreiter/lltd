@@ -96,9 +96,11 @@ jobs:
         # zig 0.13 linked binaries that crashed at startup on 32 bit
         # glibc (wrong stderr copy relocation); run the binary once.
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq qemu-user libc6-${{ matrix.qemu == 'arm' && 'armhf' || 'mipsel' }}-cross
-          qemu-${{ matrix.qemu }} -L /usr/${{ matrix.sysroot }} ./lltd -V
+          # Debian has the cross C libraries for both targets, Ubuntu not
+          docker run --rm -v "$PWD:/w" -w /w debian:trixie sh -ec '
+            apt-get update -qq
+            apt-get install -y -qq qemu-user libc6-${{ matrix.qemu == 'arm' && 'armhf' || 'mipsel' }}-cross >/dev/null
+            qemu-${{ matrix.qemu }} -L /usr/${{ matrix.sysroot }} ./lltd -V'
       - name: Package
         run: |
           r=pkgroot
