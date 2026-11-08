@@ -1,0 +1,77 @@
+.TH LLTD 8 "2026-11-08" "lltd 1.0" "System Administration"
+.SH NAME
+lltd \- Link Layer Topology Discovery (LLTD) responder
+.SH SYNOPSIS
+.B lltd
+[\fIoptions\fR] \fB\-i\fR \fIinterface\fR [\fB\-i\fR \fIinterface\fR ...]
+.SH DESCRIPTION
+.B lltd
+answers the Link Layer Topology Discovery protocol ([MS-LLTD]) used by the
+Windows network map and other LLTD mappers. The host is reported with its
+name, IPv4/IPv6 address, physical medium and link speed (quick discovery)
+and takes part in topology discovery tests (Charge, Emit, Train, Probe,
+Query, QueryLargeTlv).
+.PP
+On a Linux bridge, the source address of each Train frame is added to the
+bridge forwarding database as a local address for a few seconds (as with
+\fBbridge fdb replace\fR \fIADDR\fR \fBdev\fR \fIbridge\fR \fBself local\fR),
+so that test frames for it are delivered to this host instead of being
+flooded. Switches driven by DSA install such entries on their CPU port.
+.SH OPTIONS
+.TP
+.BR \-i ", " \-\-interface " " \fIIF\fR
+Interface to answer on (repeatable). \fBauto\fR selects the interface of the
+IPv4 default route.
+.TP
+.BR \-H ", " \-\-hostname " " \fINAME\fR
+Machine name to report (default: host name up to the first dot, max. 16
+characters).
+.TP
+.BR \-F ", " \-\-friendly\-name " " \fITEXT\fR
+Friendly name offered via QueryLargeTlv (max. 32 characters).
+.TP
+.BR \-I ", " \-\-icon " " \fIFILE\fR
+Icon image (ICO, PNG, GIF or JPEG, max. 32 KiB). Default: built-in icon.
+.TP
+.BI \-\-detailed\-icon " FILE"
+High resolution icon (max. 256 KiB).
+.TP
+.B \-\-no\-icon
+Do not offer the built-in icon.
+.TP
+.BR \-w ", " \-\-web
+Announce a management web page (http://<address>/).
+.TP
+.B \-\-nat\-private
+The interface is the private side of a NAT router.
+.TP
+.BI \-\-speed " MBIT"
+Report this link speed instead of the detected one.
+.TP
+.B \-\-no\-fdb
+Do not add Train source addresses to the bridge FDB.
+.TP
+.BI \-\-fdb\-hold " MS"
+How long such an FDB entry stays (default 5000 ms).
+.TP
+.BR \-f ", " \-\-foreground
+Do not daemonize; log to standard error unless \fB\-s\fR is given.
+.TP
+.BR \-s ", " \-\-syslog
+Log to syslog (default when running as a daemon).
+.TP
+.BR \-p ", " \-\-pidfile " " \fIFILE\fR
+Write the process ID to \fIFILE\fR.
+.TP
+.BR \-v ", " \-\-verbose
+More output; \-v information, \-vv debug, \-vvv decoded frames.
+.SH SIGNALS
+SIGHUP reloads host name and addresses, SIGTERM/SIGINT stop the daemon
+(FDB entries are removed, promiscuous mode is switched off).
+.SH NOTES
+Needs root or CAP_NET_RAW (and CAP_NET_ADMIN for FDB entries). During a
+topology test the interface is in promiscuous mode. QoS diagnostics (type
+of service 2) are not implemented.
+.SH SEE ALSO
+[MS-LLTD] Link Layer Topology Discovery (LLTD) Protocol, Microsoft Open
+Specifications.

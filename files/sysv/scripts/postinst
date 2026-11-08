@@ -1,0 +1,8 @@
+#!/bin/sh
+# OpenATV / OpenEmbedded: enable and start the service
+[ -n "$D" ] && exit 0
+if command -v update-rc.d >/dev/null 2>&1; then
+	update-rc.d lltd defaults 60 >/dev/null 2>&1 || true
+fi
+/etc/init.d/lltd restart >/dev/null 2>&1 || true
+exit 0

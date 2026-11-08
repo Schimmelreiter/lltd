@@ -1,0 +1,4 @@
+#!/bin/sh
+[ -n "$D" ] && exit 0
+/etc/init.d/lltd stop >/dev/null 2>&1 || true
+exit 0

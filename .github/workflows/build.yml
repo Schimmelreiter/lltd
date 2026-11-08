@@ -1,0 +1,130 @@
+# Tests lltd and builds packages for Debian (amd64) and OpenATV/Enigma2
+# (cortexa15hf-neon-vfpv4, mips32el). OpenWrt packages are built in
+# https://github.com/Schimmelreiter/openwrt-feed.
+#
+# Results: release "packages" (rolling) and branch "packages".
+name: Build
+
+on:
+  push:
+    branches: [master]
+    paths-ignore: ['**.md']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  VERSION: 1.0.0
+  # glibc of the receiver images: binaries must not need newer symbols
+  ZIG_VERSION: 0.13.0
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Unit tests
+        run: make test CFLAGS="-O2 -Werror"
+      - name: End-to-end test (network namespaces)
+        run: |
+          sudo apt-get -qq update && sudo apt-get -qq install -y iproute2 tcpdump >/dev/null
+          make lltd
+          sudo tests/e2e/run.sh
+          echo "--- without FDB handling (expected: INVALID round) ---"
+          ! sudo tests/e2e/run.sh --no-fdb
+
+  debian:
+    needs: test
+    runs-on: ubuntu-latest
+    container: debian:trixie
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: |
+          apt-get -qq update && apt-get -qq install -y build-essential dpkg-dev >/dev/null
+          make lltd VERSION=$VERSION CFLAGS="-O2 -g0" LDFLAGS="-s"
+      - name: Package
+        run: |
+          r=pkgroot
+          install -D -m 0755 lltd $r/usr/sbin/lltd
+          install -D -m 0644 doc/lltd.8 $r/usr/share/man/man8/lltd.8
+          gzip -9n $r/usr/share/man/man8/lltd.8
+          install -D -m 0644 files/debian/lltd.service $r/usr/lib/systemd/system/lltd.service
+          install -D -m 0644 files/debian/lltd.default $r/etc/default/lltd
+          install -D -m 0644 README.md $r/usr/share/doc/lltd/README.md
+          sh tools/mkpkg.sh deb lltd "$VERSION-$GITHUB_RUN_NUMBER" amd64 $r dist \
+            "Link Layer Topology Discovery (LLTD) responder" \
+            -d "libc6 (>= 2.17)" -s files/debian/scripts -c /etc/default/lltd
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pkg-debian
+          path: dist/
+
+  openatv:
+    needs: test
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - arch: cortexa15hf-neon-vfpv4
+            target: arm-linux-gnueabihf.2.24
+            cpu: cortex_a15
+          - arch: mips32el
+            target: mipsel-linux-gnueabihf.2.24
+            cpu: mips32
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install zig
+        run: pip install --quiet ziglang==$ZIG_VERSION
+      - name: Build
+        run: |
+          make lltd VERSION=$VERSION CC="python3 -m ziglang cc -target ${{ matrix.target }} -mcpu=${{ matrix.cpu }}" \
+            CFLAGS="-O2" LDFLAGS="-s"
+          file lltd
+          echo "glibc symbol versions:"
+          objdump -T lltd | grep -o 'GLIBC_[0-9.]*' | sort -uV | tee glibc.txt
+          max=$(tail -n 1 glibc.txt | sed 's/GLIBC_//')
+          # must run on glibc 2.24 and newer (OpenATV 6.x)
+          [ "$(printf '%s\n2.24\n' "$max" | sort -V | tail -n 1)" = 2.24 ]
+      - name: Package
+        run: |
+          r=pkgroot
+          install -D -m 0755 lltd $r/usr/sbin/lltd
+          install -D -m 0755 files/sysv/lltd.init $r/etc/init.d/lltd
+          install -D -m 0644 files/sysv/lltd.default $r/etc/default/lltd
+          sh tools/mkpkg.sh ipk lltd "$VERSION-r$GITHUB_RUN_NUMBER" ${{ matrix.arch }} $r dist \
+            "Link Layer Topology Discovery (LLTD) responder" \
+            -d "libc6" -s files/sysv/scripts -c /etc/default/lltd
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pkg-openatv-${{ matrix.arch }}
+          path: dist/
+
+  publish:
+    needs: [debian, openatv]
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Release "packages" (rolling)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ls -la dist
+          gh release delete packages --yes --cleanup-tag -R "$GITHUB_REPOSITORY" 2>/dev/null || true
+          gh release create packages dist/* -R "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "Packages (Debian, OpenATV)" \
+            --notes "Built from $GITHUB_SHA. Debian: \`apt install ./lltd_*_amd64.deb\`. OpenATV: \`opkg install /tmp/lltd_*_<arch>.ipk\`. OpenWrt: see Schimmelreiter/openwrt-feed."
+      - name: Branch "packages"
+        run: |
+          mkdir pub && cp dist/* pub/ && cd pub
+          git init -q -b packages
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          git add -A && git commit -qm "Packages from ${GITHUB_SHA}"
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${GITHUB_REPOSITORY}" packages

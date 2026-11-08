@@ -1,0 +1,37 @@
+/etc/config/lltd - LLTD responder (Windows network map, LLTD mappers)
+=====================================================================
+UCI files lose their comments when LuCI or "uci commit" writes them, so the
+explanations live here.
+
+lltd answers Link Layer Topology Discovery (MS-LLTD) on the given networks:
+the device appears in the Windows network map (and in LLTD mappers such as
+LLTD-Netzwerkuebersicht) with name, IP, medium and speed, and takes part in
+the topology tests.
+
+config lltd 'main'
+  enabled        '1' = run lltd
+  interface      logical networks (list), default 'lan'. Never put WAN here.
+  hostname       machine name to report (max. 16 characters), default:
+                 system host name
+  friendly_name  longer display name, default: board model
+                 (/tmp/sysinfo/model)
+  icon           own icon file (ICO, PNG, GIF or JPEG, max. 32 KiB);
+                 default: built-in router icon
+  web            '1' = announce the web interface (http://<ip>/), Windows
+                 then offers "View device webpage"
+  nat_private    '1' = this interface is the private side of a NAT router,
+                 '0' = not, 'auto' (default) = '1' if a network 'wan' exists
+  fdb            '1' (default) = add the source address of Train frames to
+                 the bridge FDB as a local address for a few seconds, so that
+                 test frames for it reach this device instead of being
+                 flooded. Needed on bridges (br-lan), especially with DSA
+                 switches; without it topology rounds through this device
+                 become invalid. '0' = off.
+  fdb_hold       how long such an entry stays, in ms (default 5000)
+  speed          link speed to report in Mbit/s (default: detected; for a
+                 bridge the fastest member port)
+  verbose        0 = errors/warnings, 1 = info, 2 = debug, 3 = frame dump
+                 (log: logread -e lltd)
+
+Requires root/CAP_NET_RAW (raw socket on the interface); while a mapper
+runs a topology test the interface is in promiscuous mode.

@@ -1,0 +1,53 @@
+#!/bin/sh
+### BEGIN INIT INFO
+# Provides:          lltd
+# Required-Start:    $network
+# Required-Stop:     $network
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 1 6
+# Short-Description: Link Layer Topology Discovery (LLTD) responder
+### END INIT INFO
+#
+# Options: /etc/default/lltd (LLTD_OPTS)
+
+DAEMON=/usr/sbin/lltd
+PIDFILE=/var/run/lltd.pid
+LLTD_OPTS="-i auto -w"
+[ -r /etc/default/lltd ] && . /etc/default/lltd
+
+running() {
+	[ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null
+}
+
+case "$1" in
+	start)
+		running && exit 0
+		$DAEMON -s -p "$PIDFILE" $LLTD_OPTS
+		;;
+	stop)
+		if running; then
+			kill -TERM "$(cat "$PIDFILE")"
+			i=0
+			while [ $i -lt 5 ] && running; do
+				sleep 1
+				i=$((i + 1))
+			done
+		fi
+		rm -f "$PIDFILE"
+		;;
+	reload)
+		running && kill -HUP "$(cat "$PIDFILE")"
+		;;
+	restart|force-reload)
+		$0 stop
+		$0 start
+		;;
+	status)
+		running && echo "lltd is running" || { echo "lltd is not running"; exit 3; }
+		;;
+	*)
+		echo "Usage: $0 {start|stop|restart|reload|status}"
+		exit 1
+		;;
+esac
+exit 0
