@@ -77,7 +77,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install zig
-        run: pip install --quiet ziglang==$ZIG_VERSION
+        run: python3 -m pip install --quiet --break-system-packages ziglang==$ZIG_VERSION
       - name: Build
         run: |
           make lltd VERSION=$VERSION CC="python3 -m ziglang cc -target ${{ matrix.target }} -mcpu=${{ matrix.cpu }}" \
