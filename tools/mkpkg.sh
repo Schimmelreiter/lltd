@@ -21,9 +21,12 @@ while [ $# -gt 0 ]; do
 	esac
 done
 
+mkdir -p "$outdir"
+outdir=$(cd "$outdir" && pwd)
+root=$(cd "$root" && pwd)
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
-mkdir -p "$work/control" "$outdir"
+mkdir -p "$work/control"
 size=$(du -sk "$root" | cut -f1)
 
 {
@@ -63,7 +66,7 @@ ipk)
 	(cd "$root" && tar --owner=0 --group=0 --numeric-owner -czf "$work/data.tar.gz" .)
 	out="$outdir/${name}_${version}_${arch}.ipk"
 	rm -f "$out"
-	(cd "$work" && ar rc "$(cd "$(dirname "$out")" && pwd)/$(basename "$out")" debian-binary control.tar.gz data.tar.gz)
+	(cd "$work" && ar rc "$out" debian-binary control.tar.gz data.tar.gz)
 	;;
 *)
 	echo "format must be deb or ipk" >&2
