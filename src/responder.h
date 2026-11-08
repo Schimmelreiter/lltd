@@ -108,6 +108,7 @@ struct lltd_responder {
 	const struct lltd_ops *ops;
 	struct lltd_hostinfo info;
 	int fdb_hold_ms;        /* how long a Train source stays in the bridge FDB */
+	int log_level;          /* highest level passed to ops->log (4 = frames) */
 
 	/* quick discovery (3.5) */
 	enum enum_state estate;

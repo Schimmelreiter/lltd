@@ -25,7 +25,7 @@ static void logm(struct lltd_responder *r, int level, const char *fmt, ...)
 	char buf[512];
 	va_list ap;
 
-	if (!r->ops->log)
+	if (!r->ops->log || level > r->log_level)
 		return;
 	va_start(ap, fmt);
 	vsnprintf(buf, sizeof(buf), fmt, ap);
@@ -38,7 +38,7 @@ static void log_frame(struct lltd_responder *r, const char *dir, const uint8_t *
 	struct lltd_frame f;
 	char text[1024];
 
-	if (!r->ops->log || lltd_parse(buf, len, &f) != 0)
+	if (!r->ops->log || r->log_level < 4 || lltd_parse(buf, len, &f) != 0)
 		return;
 	lltd_describe(&f, text, sizeof(text));
 	logm(r, 4, "%s %s", dir, text);
@@ -288,6 +288,7 @@ static void rx_charge(struct lltd_responder *r, const struct lltd_frame *f, uint
 {
 	uint8_t fc0 = r->ctc_fc;
 	uint32_t bc0 = r->ctc_bc;
+	uint16_t seq0 = r->next_seq;
 
 	if (r->tstate == TOPO_QUIESCENT)
 		return;
@@ -301,23 +302,30 @@ static void rx_charge(struct lltd_responder *r, const struct lltd_frame *f, uint
 		if (!accept_sequence(r, f))
 			return;
 	}
-	r->last_valid = 0;
 
 	add_charge(r, f->len);
-	r->charge_deadline = now + CHARGE_TIMEOUT_MS;
 
-	if (f->seq != 0) {
-		/* a Flat frame costs 1 FC and 37 BC */
-		if (r->ctc_fc < 1 || r->ctc_bc < CHARGE_FLAT_BC) {
-			r->ctc_fc = fc0;
-			r->ctc_bc = bc0;
-			logm(r, 3, "acknowledged Charge without enough padding ignored");
-			return;
-		}
-		r->ctc_fc -= 1;
-		r->ctc_bc -= CHARGE_FLAT_BC;
-		send_flat(r, f, bc0, fc0);
+	if (f->seq == 0) {
+		/* Unacknowledged (keep-alive) charges leave the last-sent response
+		 * alone, so a lost reply can still be repeated when the mapper
+		 * retries its last request after charging. */
+		r->charge_deadline = now + CHARGE_TIMEOUT_MS;
+		return;
 	}
+
+	/* a Flat frame costs 1 FC and 37 BC */
+	if (r->ctc_fc < 1 || r->ctc_bc < CHARGE_FLAT_BC) {
+		r->ctc_fc = fc0;
+		r->ctc_bc = bc0;
+		r->next_seq = seq0;     /* the frame is ignored completely */
+		logm(r, 3, "acknowledged Charge without enough padding ignored");
+		return;
+	}
+	r->last_valid = 0;
+	r->charge_deadline = now + CHARGE_TIMEOUT_MS;
+	r->ctc_fc -= 1;
+	r->ctc_bc -= CHARGE_FLAT_BC;
+	send_flat(r, f, bc0, fc0);
 }
 
 static int valid_emit(const struct lltd_responder *r, const struct lltd_frame *f,
@@ -390,6 +398,7 @@ static void rx_emit(struct lltd_responder *r, const struct lltd_frame *f, uint64
 		/* the Flat frame consumes its own charge */
 		r->ctc_fc = r->ctc_fc >= 1 ? r->ctc_fc - 1 : 0;
 		r->ctc_bc = r->ctc_bc >= CHARGE_FLAT_BC ? r->ctc_bc - CHARGE_FLAT_BC : 0;
+		r->charge_deadline = now + CHARGE_TIMEOUT_MS;
 		send_flat(r, f, bc0, fc0);
 		return;
 	}
@@ -620,9 +629,9 @@ static void topo_rx(struct lltd_responder *r, const struct lltd_frame *f, uint64
 /* quick discovery / enumeration state engine (3.5)                    */
 /* ------------------------------------------------------------------ */
 
-static uint32_t div_round_up(uint64_t a, uint64_t b)
+static uint64_t div_round_up(uint64_t a, uint64_t b)
 {
-	return (uint32_t)((a + b - 1) / b);
+	return (a + b - 1) / b;
 }
 
 static void schedule_hello(struct lltd_responder *r, uint64_t now)
@@ -755,7 +764,8 @@ static void rx_discover(struct lltd_responder *r, const struct lltd_frame *f, ui
 	}
 	s->active_ms = now;
 	s->apparent = f->eth_src;
-	if (s->state == SESS_COMPLETE && f->tos == TOS_TOPOLOGY)
+	/* generation 0 means "none yet": keep a negotiated value */
+	if (s->state == SESS_COMPLETE && f->tos == TOS_TOPOLOGY && gen != 0)
 		r->generation = gen;
 
 	r->r_count++;
@@ -894,11 +904,11 @@ static void hello_timer(struct lltd_responder *r, uint64_t now)
 static void block_timer(struct lltd_responder *r, uint64_t now)
 {
 	uint64_t ta = now > r->block_start_ms ? now - r->block_start_ms : 1;
-	uint32_t nold = r->n_est, value, bound, nnew;
+	uint64_t nold = r->n_est, value, bound, nnew;
 
-	/* RepeatBAND (3.5.6.2), I in microseconds */
+	/* RepeatBAND (3.5.6.2), I in microseconds, 64 bit to avoid overflow */
 	value = div_round_up((uint64_t)r->r_count * nold * RB_I_US, ta * 1000);
-	bound = div_round_up((uint64_t)nold * RB_GAMMA, RB_BETA * RB_ALPHA);
+	bound = div_round_up(nold * RB_GAMMA, RB_BETA * RB_ALPHA);
 	nnew = value < 100 * nold ? value : 100 * nold;
 	if (nnew < bound)
 		nnew = bound;
@@ -906,9 +916,12 @@ static void block_timer(struct lltd_responder *r, uint64_t now)
 		nnew = nnew * 2 > RB_NMAX ? RB_NMAX : nnew * 2;
 		r->begun = 0;
 	}
+	/* a flood of Hello/Discover frames must not wrap the estimate */
+	if (nnew > 100 * (uint64_t)RB_NMAX)
+		nnew = 100 * (uint64_t)RB_NMAX;
 	if (nnew < 1)
 		nnew = 1;
-	r->n_est = nnew;
+	r->n_est = (uint32_t)nnew;
 	r->r_count = 0;
 	r->block_start_ms = now;
 	r->block_deadline = now + RB_TB_MS;
@@ -953,6 +966,7 @@ int lltd_init(struct lltd_responder *r, const struct lltd_ops *ops,
 	r->ops = ops;
 	r->info = *info;
 	r->fdb_hold_ms = 5000;
+	r->log_level = 3;
 	r->sees_cap = LLTD_SEES_LIST_MAX;
 	r->sees = calloc(r->sees_cap, sizeof(*r->sees));
 	if (!r->sees)

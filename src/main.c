@@ -188,21 +188,23 @@ static int fdb_request(const struct iface *ifc, int type, const mac_t *mac, uint
 
 	if (send(g.nl_fd, &req, req.nh.nlmsg_len, 0) < 0)
 		return -1;
-	n = recv(g.nl_fd, ack, sizeof(ack), 0);
-	if (n < 0)
-		return -1;
-	for (h = (struct nlmsghdr *)ack; NLMSG_OK(h, (unsigned int)n); h = NLMSG_NEXT(h, n)) {
-		if (h->nlmsg_type == NLMSG_ERROR) {
-			struct nlmsgerr *e = NLMSG_DATA(h);
+	/* wait for the matching acknowledgement (skip stale ones) */
+	for (;;) {
+		n = recv(g.nl_fd, ack, sizeof(ack), 0);
+		if (n < 0)
+			return -1;
+		for (h = (struct nlmsghdr *)ack; NLMSG_OK(h, (unsigned int)n); h = NLMSG_NEXT(h, n)) {
+			if (h->nlmsg_type == NLMSG_ERROR && h->nlmsg_seq == req.nh.nlmsg_seq) {
+				struct nlmsgerr *e = NLMSG_DATA(h);
 
-			if (e->error) {
-				errno = -e->error;
-				return -1;
+				if (e->error) {
+					errno = -e->error;
+					return -1;
+				}
+				return 0;
 			}
-			return 0;
 		}
 	}
-	return 0;
 }
 
 static void fdb_add(void *ctx, const mac_t *mac)
@@ -397,6 +399,7 @@ static int setup_iface(struct iface *ifc, const mac_t *host_id)
 		return -1;
 	}
 	ifc->resp.fdb_hold_ms = g.fdb_hold_ms;
+	ifc->resp.log_level = g.verbose;
 	mac_format(&info.mac, m);
 	logx(2, "%s: responding as %s%s%s", ifc->name, m,
 	     ifc->bridge ? " (bridge" : "",
@@ -552,7 +555,7 @@ int main(int argc, char **argv)
 
 	g.nl_fd = socket(AF_NETLINK, SOCK_RAW | SOCK_CLOEXEC, NETLINK_ROUTE);
 	if (g.nl_fd >= 0) {
-		struct timeval tv = { 1, 0 };
+		struct timeval tv = { 0, 200000 };   /* never stall an Emit */
 
 		setsockopt(g.nl_fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 	}
@@ -594,9 +597,21 @@ int main(int argc, char **argv)
 			for (int i = 0; i < g.n_ifs; i++) {
 				int up = sys_if_carrier(g.ifs[i].name);
 
+				mac_t mac;
+
 				if (g.ifs[i].carrier && !up)
 					lltd_media_disconnect(&g.ifs[i].resp);
 				g.ifs[i].carrier = up;
+				/* a bridge takes the lowest port MAC unless it has a fixed one */
+				if (sys_if_mac(g.ifs[i].name, &mac) == 0 &&
+				    !mac_eq(&mac, &g.ifs[i].resp.info.mac)) {
+					char m[18];
+
+					mac_format(&mac, m);
+					logx(1, "%s: MAC address changed to %s", g.ifs[i].name, m);
+					lltd_media_disconnect(&g.ifs[i].resp);
+					reload_requested = 1;
+				}
 			}
 		}
 		for (int i = 0; i < g.n_ifs; i++) {

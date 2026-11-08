@@ -442,6 +442,17 @@ static void test_query_sequence(void)
 	CHECK(count_tx(FN_QUERY_RESP) == n + 1);
 	simple(FN_QUERY, 101, 60);
 	CHECK(count_tx(FN_QUERY_RESP) == n + 2);
+	/* a keep-alive Charge between a lost reply and the retry keeps the
+	 * saved answer */
+	simple(FN_CHARGE, 0, 60);
+	simple(FN_QUERY, 101, 60);
+	CHECK(count_tx(FN_QUERY_RESP) == n + 3);
+	/* an acknowledged Charge without padding for the Flat is ignored and
+	 * does not use up the sequence number */
+	R.ctc_fc = 0;
+	R.ctc_bc = 0;
+	simple(FN_CHARGE, 102, 20);
+	CHECK(count_tx(FN_FLAT) == 0 && R.next_seq == 102);
 
 	/* ones-complement wrap */
 	R.next_seq = 0xFFFF;
