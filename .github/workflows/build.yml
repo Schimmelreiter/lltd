@@ -18,7 +18,7 @@ permissions:
 env:
   VERSION: 1.0.0
   # glibc of the receiver images: binaries must not need newer symbols
-  ZIG_VERSION: 0.13.0
+  ZIG_VERSION: 0.14.1
 
 jobs:
   test:
@@ -71,9 +71,13 @@ jobs:
           - arch: cortexa15hf-neon-vfpv4
             target: arm-linux-gnueabihf.2.24
             cpu: cortex_a15
+            qemu: arm
+            sysroot: arm-linux-gnueabihf
           - arch: mips32el
             target: mipsel-linux-gnueabihf.2.24
             cpu: mips32
+            qemu: mipsel
+            sysroot: mipsel-linux-gnu
     steps:
       - uses: actions/checkout@v4
       - name: Install zig
@@ -88,6 +92,13 @@ jobs:
           max=$(tail -n 1 glibc.txt | sed 's/GLIBC_//')
           # must run on glibc 2.24 and newer (OpenATV 6.x)
           [ "$(printf '%s\n2.24\n' "$max" | sort -V | tail -n 1)" = 2.24 ]
+      - name: Smoke test (qemu-user)
+        # zig 0.13 linked binaries that crashed at startup on 32 bit
+        # glibc (wrong stderr copy relocation); run the binary once.
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq qemu-user libc6-${{ matrix.qemu == 'arm' && 'armhf' || 'mipsel' }}-cross
+          qemu-${{ matrix.qemu }} -L /usr/${{ matrix.sysroot }} ./lltd -V
       - name: Package
         run: |
           r=pkgroot
