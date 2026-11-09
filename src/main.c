@@ -62,6 +62,7 @@ static struct {
 	int foreground;
 	int use_fdb;
 	int fdb_hold_ms;
+	int observe;
 	int speed_mbit;
 	int web;
 	int nat_private;
@@ -432,6 +433,7 @@ static int setup_iface(struct iface *ifc, const mac_t *host_id)
 		return -1;
 	}
 	ifc->resp.fdb_hold_ms = g.fdb_hold_ms;
+	ifc->resp.observe_mode = (enum lltd_observe)g.observe;
 	ifc->resp.log_level = g.verbose;
 	mac_format(&info.mac, m);
 	logx(2, "%s: responding as %s%s%s", ifc->name, m,
@@ -501,6 +503,8 @@ static void usage(FILE *out)
 		"      --no-fdb             do not register Train sources (bridge FDB or\n"
 		"                           unicast address list of the interface)\n"
 		"      --fdb-hold MS        how long a Train source stays registered (default 5000)\n"
+		"      --observe MODE       auto (default): stop accepting Train emits if probes to\n"
+		"                           test addresses never arrive; yes; no\n"
 		"  -f, --foreground         do not daemonize, log to stderr\n"
 		"  -s, --syslog             log to syslog (default when daemonized)\n"
 		"  -p, --pidfile FILE       write the process ID to FILE\n"
@@ -512,7 +516,7 @@ static void usage(FILE *out)
 
 int main(int argc, char **argv)
 {
-	enum { OPT_DETAILED = 256, OPT_NO_ICON, OPT_NAT, OPT_SPEED, OPT_NO_FDB, OPT_FDB_HOLD };
+	enum { OPT_DETAILED = 256, OPT_NO_ICON, OPT_NAT, OPT_SPEED, OPT_NO_FDB, OPT_FDB_HOLD, OPT_OBSERVE };
 	static const struct option opts[] = {
 		{ "interface", required_argument, NULL, 'i' },
 		{ "hostname", required_argument, NULL, 'H' },
@@ -525,6 +529,7 @@ int main(int argc, char **argv)
 		{ "speed", required_argument, NULL, OPT_SPEED },
 		{ "no-fdb", no_argument, NULL, OPT_NO_FDB },
 		{ "fdb-hold", required_argument, NULL, OPT_FDB_HOLD },
+		{ "observe", required_argument, NULL, OPT_OBSERVE },
 		{ "foreground", no_argument, NULL, 'f' },
 		{ "syslog", no_argument, NULL, 's' },
 		{ "pidfile", required_argument, NULL, 'p' },
@@ -561,6 +566,18 @@ int main(int argc, char **argv)
 		case OPT_SPEED: g.speed_mbit = atoi(optarg); break;
 		case OPT_NO_FDB: g.use_fdb = 0; break;
 		case OPT_FDB_HOLD: g.fdb_hold_ms = atoi(optarg); break;
+		case OPT_OBSERVE:
+			if (!strcmp(optarg, "auto"))
+				g.observe = LLTD_OBSERVE_AUTO;
+			else if (!strcmp(optarg, "yes"))
+				g.observe = LLTD_OBSERVE_YES;
+			else if (!strcmp(optarg, "no"))
+				g.observe = LLTD_OBSERVE_NO;
+			else {
+				fprintf(stderr, "lltd: --observe must be auto, yes or no\n");
+				return 2;
+			}
+			break;
 		case 'f': g.foreground = 1; break;
 		case 's': force_syslog = 1; break;
 		case 'p': g.pidfile = optarg; break;

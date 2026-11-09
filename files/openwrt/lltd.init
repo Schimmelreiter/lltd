@@ -6,7 +6,7 @@ START=95
 USE_PROCD=1
 
 start_service() {
-	local enabled interfaces hostname friendly icon web nat fdb fdb_hold speed verbose
+	local enabled interfaces hostname friendly icon web nat fdb fdb_hold observe speed verbose
 	local net dev args="" count=0
 
 	config_load lltd
@@ -20,6 +20,7 @@ start_service() {
 	config_get nat main nat_private auto
 	config_get_bool fdb main fdb 1
 	config_get fdb_hold main fdb_hold
+	config_get observe main observe
 	config_get speed main speed
 	config_get verbose main verbose 0
 
@@ -53,6 +54,7 @@ start_service() {
 	[ "$nat" = 1 ] && procd_append_param command --nat-private
 	[ "$fdb" = 1 ] || procd_append_param command --no-fdb
 	[ -n "$fdb_hold" ] && procd_append_param command --fdb-hold "$fdb_hold"
+	[ -n "$observe" ] && procd_append_param command --observe "$observe"
 	[ -n "$speed" ] && procd_append_param command --speed "$speed"
 	while [ "$verbose" -gt 0 ]; do
 		procd_append_param command -v

@@ -765,6 +765,86 @@ static void test_mapper_round(void)
 	CHECK(F.n_fdb == 0 && F.promisc == 0);
 }
 
+
+/* one "c" round: charge, acknowledged Emit with two trains, Ack (or not) */
+static int train_round(uint16_t *seq)
+{
+	struct desc t2[2] = { { EMITEE_TRAIN, 10, SPOOF1, PEER }, { EMITEE_TRAIN, 5, SPOOF1, PEER } };
+	int acks = count_tx(FN_ACK);
+
+	for (int i = 0; i < 3; i++)
+		simple(FN_CHARGE, 0, 60);
+	emit(*seq, t2, 2);
+	advance(50);
+	if (count_tx(FN_ACK) == acks)
+		return 0;
+	*seq = seq_next(*seq);
+	return 1;
+}
+
+static void test_observe(void)
+{
+	struct desc p = { EMITEE_PROBE, 10, ME, SPOOF2 };
+	uint16_t seq;
+	int ok = 1;
+
+	/* deaf interface: no probe of another responder arrives */
+	setup("observe-deaf");
+	associate();
+	seq = 100;
+	for (int i = 0; i < LLTD_OBSERVE_MIN_ROUNDS; i++) {
+		ok &= train_round(&seq);
+		/* the mapper's own probe arrives (as in its self-test): does not count */
+		probe_seen(&MAPPER, &MAPPER, &SPOOF1);
+	}
+	CHECK(ok);                              /* this session is not changed */
+	CHECK(R.observe_deaf == 1 && R.observe_off == 0);
+	CHECK(train_round(&seq) == 1);
+	reset(&MAPPER, TOS_TOPOLOGY);
+	CHECK(R.observe_off == 1);
+
+	/* next session: Trains refused (no Ack, no Flat), probes still emitted */
+	associate();
+	seq = 200;
+	{
+		int flats = count_tx(FN_FLAT);
+
+		CHECK(train_round(&seq) == 0);
+		CHECK(count_tx(FN_FLAT) == flats);
+	}
+	emit(0, &p, 1);
+	advance(20);
+	CHECK(count_tx(FN_PROBE) == 1);
+	reset(&MAPPER, TOS_TOPOLOGY);
+
+	/* link loss clears the state */
+	lltd_media_disconnect(&R);
+	CHECK(R.observe_off == 0);
+
+	/* healthy interface: a probe of another responder reaches X */
+	setup("observe-ok");
+	associate();
+	seq = 300;
+	for (int i = 0; i < LLTD_OBSERVE_MIN_ROUNDS + 2; i++) {
+		train_round(&seq);
+		if (i == 1)
+			probe_seen(&PEER, &PEER, &SPOOF1);
+	}
+	CHECK(R.observe_deaf == 0);
+	reset(&MAPPER, TOS_TOPOLOGY);
+	CHECK(R.observe_off == 0);
+
+	/* --observe yes / no */
+	setup("observe-modes");
+	R.observe_mode = LLTD_OBSERVE_NO;
+	associate();
+	seq = 400;
+	CHECK(train_round(&seq) == 0);
+	R.observe_mode = LLTD_OBSERVE_YES;
+	R.observe_off = 1;
+	CHECK(train_round(&seq) == 1);
+}
+
 int main(void)
 {
 	test_parse();
@@ -780,6 +860,7 @@ int main(void)
 	test_broadcast_reply();
 	test_timeouts();
 	test_mapper_round();
+	test_observe();
 	lltd_free(&R);
 	pcap_close(F.pcap);
 

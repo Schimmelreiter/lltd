@@ -19,6 +19,8 @@
 #define LLTD_MAX_SESSIONS       32
 #define LLTD_SEES_LIST_MAX      10000
 #define LLTD_FDB_MAX            64
+/* observation self-check: rounds with own Train frames before deciding */
+#define LLTD_OBSERVE_MIN_ROUNDS 8
 
 /* RepeatBAND constants (3.5.1) */
 #define RB_ALPHA                45
@@ -36,6 +38,11 @@
 
 enum enum_state { ENUM_QUIESCENT, ENUM_PAUSING, ENUM_WAIT };
 enum topo_state { TOPO_QUIESCENT, TOPO_COMMAND, TOPO_EMIT };
+
+/* Can this interface observe probes to test addresses (the "c" role)?
+ * auto: yes, until a topology session shows that no probe from another
+ * responder ever reaches an address this responder has trained. */
+enum lltd_observe { LLTD_OBSERVE_AUTO, LLTD_OBSERVE_YES, LLTD_OBSERVE_NO };
 enum sess_state { SESS_FREE, SESS_PENDING, SESS_COMPLETE, SESS_TEMPORARY };
 
 /* Information about this host/interface used in Hello frames */
@@ -148,6 +155,14 @@ struct lltd_responder {
 	/* bridge FDB entries for Train sources */
 	struct { mac_t mac; uint64_t expires; } fdb[LLTD_FDB_MAX];
 	int fdb_count;
+
+	/* observation self-check (see enum lltd_observe) */
+	enum lltd_observe observe_mode;
+	int observe_off;                /* auto: found deaf in an earlier session */
+	int observe_deaf;               /* auto: found deaf in this session */
+	unsigned int obs_rounds;        /* accepted Emits with Train frames */
+	unsigned int obs_hits;          /* probes from other responders to trained addresses */
+	int obs_refused_logged;
 
 	/* statistics */
 	unsigned long rx_frames, tx_frames, tx_errors;

@@ -37,6 +37,13 @@ the Microsoft "Rally" porting kit (lld2d); it is still in the git history.
   (`PACKET_MR_UNICAST`). This is needed for DSA user ports of set-top boxes
   (e.g. Vu+ Ultimo4K, `eth0@sys0`, brcm-systemport), whose switch drops
   unicast frames to foreign addresses even in promiscuous mode.
+* Observation self-check (`--observe auto`, default): if during a topology
+  session no probe of another responder ever reaches a test address this
+  responder has trained (8 rounds), the interface cannot observe. From the
+  next session on lltd refuses Emits with Train frames, so a mapper treats it
+  as "cannot observe" and uses it only as probe sender and destination,
+  instead of getting invalid rounds. A link change or restart clears it;
+  `--observe yes|no` forces the behaviour.
 * Promiscuous mode only while a mapper is associated (Command/Emit state).
 * No dependencies besides the C library; about 40 KB on MIPS.
 
@@ -61,6 +68,8 @@ lltd [options] -i <interface> [-i <interface> ...]
       --no-fdb             do not register Train sources (bridge FDB or
                            unicast address list of the interface)
       --fdb-hold MS        how long a Train source stays registered (default 5000)
+      --observe MODE       auto (default): stop accepting Train emits if probes to
+                           test addresses never arrive; yes; no
   -f, --foreground         do not daemonize, log to stderr
   -s, --syslog             log to syslog (default when daemonized)
   -p, --pidfile FILE       write the process ID to FILE

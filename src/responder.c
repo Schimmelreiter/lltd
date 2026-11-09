@@ -91,7 +91,7 @@ static void fdb_learn(struct lltd_responder *r, const mac_t *mac, uint64_t now)
 {
 	int i, oldest = 0;
 
-	if (!r->ops->fdb_add || mac_eq(mac, &r->info.mac))
+	if (mac_eq(mac, &r->info.mac))
 		return;
 	for (i = 0; i < r->fdb_count; i++) {
 		if (mac_eq(&r->fdb[i].mac, mac)) {
@@ -106,7 +106,70 @@ static void fdb_learn(struct lltd_responder *r, const mac_t *mac, uint64_t now)
 	r->fdb[r->fdb_count].mac = *mac;
 	r->fdb[r->fdb_count].expires = now + (uint64_t)r->fdb_hold_ms;
 	r->fdb_count++;
-	r->ops->fdb_add(r->ops->ctx, mac);
+	if (r->ops->fdb_add)
+		r->ops->fdb_add(r->ops->ctx, mac);
+}
+
+static int fdb_contains(const struct lltd_responder *r, const mac_t *mac)
+{
+	for (int i = 0; i < r->fdb_count; i++)
+		if (mac_eq(&r->fdb[i].mac, mac))
+			return 1;
+	return 0;
+}
+
+/* ------------------------------------------------------------------ */
+/* observation self-check                                              */
+/* ------------------------------------------------------------------ */
+
+/* Some interfaces never receive unicast frames to foreign addresses, even
+ * in promiscuous mode (e.g. DSA user ports of set-top boxes, whose switch
+ * only forwards known addresses to the CPU). As "c" of a round such a
+ * responder reports an empty sees-list and the round is invalid. In auto
+ * mode lltd counts its rounds with Train frames and the probes of other
+ * responders (not the mapper itself) that reach the trained addresses; if
+ * there is none after LLTD_OBSERVE_MIN_ROUNDS rounds, it refuses Emits
+ * with Train frames from the next topology session on, so that a mapper
+ * treats it as "cannot observe" and still uses it as probe sender. */
+static int observing(const struct lltd_responder *r)
+{
+	switch (r->observe_mode) {
+	case LLTD_OBSERVE_YES: return 1;
+	case LLTD_OBSERVE_NO: return 0;
+	default: return !r->observe_off;
+	}
+}
+
+static void observe_round(struct lltd_responder *r)
+{
+	r->obs_rounds++;
+	if (r->observe_mode == LLTD_OBSERVE_AUTO && !r->observe_deaf &&
+	    r->obs_rounds >= LLTD_OBSERVE_MIN_ROUNDS && r->obs_hits == 0) {
+		r->observe_deaf = 1;
+		logm(r, 1, "no probe from another responder reached a trained test address in %u rounds: "
+		     "this interface cannot observe; Emits with Train frames are refused from the next "
+		     "topology session on (option --observe yes overrides this)", r->obs_rounds);
+	}
+}
+
+static void observe_hit(struct lltd_responder *r, const struct lltd_frame *f)
+{
+	if (!fdb_contains(r, &f->eth_dst) || (r->have_mapper && mac_eq(&f->real_src, &r->mapper)))
+		return;
+	r->obs_hits++;
+	if (r->observe_deaf) {
+		r->observe_deaf = 0;
+		logm(r, 2, "probe to a trained test address received after all: observing again");
+	}
+}
+
+static void observe_session_end(struct lltd_responder *r)
+{
+	if (r->observe_deaf)
+		r->observe_off = 1;
+	r->observe_deaf = 0;
+	r->obs_rounds = r->obs_hits = 0;
+	r->obs_refused_logged = 0;
 }
 
 static void fdb_expire(struct lltd_responder *r, uint64_t now, int all)
@@ -139,6 +202,8 @@ static void topo_enter_quiescent(struct lltd_responder *r)
 	r->last_valid = 0;
 	r->next_seq = 0;
 	fdb_expire(r, 0, 1);
+	if (was != TOPO_QUIESCENT)
+		observe_session_end(r);
 	if (was != TOPO_QUIESCENT) {
 		if (r->ops->set_promisc)
 			r->ops->set_promisc(r->ops->ctx, 0);
@@ -362,7 +427,7 @@ static void rx_emit(struct lltd_responder *r, const struct lltd_frame *f, uint64
 {
 	uint8_t fc0 = r->ctc_fc;
 	uint32_t bc0 = r->ctc_bc;
-	int n, acked = f->seq != 0;
+	int n, acked = f->seq != 0, has_train = 0;
 	uint32_t need_fc, need_bc;
 
 	if (r->tstate == TOPO_QUIESCENT)
@@ -379,6 +444,20 @@ static void rx_emit(struct lltd_responder *r, const struct lltd_frame *f, uint64
 	}
 	if (acked && r->next_seq != 0 && r->next_seq != f->seq) {
 		logm(r, 3, "Emit seq %u ignored, expected %u", f->seq, r->next_seq);
+		return;
+	}
+	for (int i = 0; i < n; i++) {
+		const uint8_t *d = f->body + 2 + i * EMITEE_DESC_LEN;
+
+		if (d[0] == EMITEE_TRAIN && memcmp(d + 2, r->info.mac.a, ETH_ADDR_LEN) != 0) {
+			has_train = 1;
+			break;
+		}
+	}
+	if (has_train && !observing(r)) {
+		if (!r->obs_refused_logged)
+			logm(r, 2, "Emit with Train frames refused: this interface cannot observe");
+		r->obs_refused_logged = 1;
 		return;
 	}
 
@@ -418,6 +497,8 @@ static void rx_emit(struct lltd_responder *r, const struct lltd_frame *f, uint64
 	r->emit_count = n;
 	r->emit_pos = 0;
 	r->emit_seq = f->seq;
+	if (has_train)
+		observe_round(r);
 	r->emit_reply_dst = *reply_dst(f);
 	topo_leave_command(r);
 	r->tstate = TOPO_EMIT;
@@ -469,6 +550,7 @@ static void rx_probe(struct lltd_responder *r, const struct lltd_frame *f)
 
 	if (r->tstate == TOPO_QUIESCENT)
 		return;
+	observe_hit(r, f);
 	if (r->sees_count >= r->sees_cap) {
 		if (!r->error_flag)
 			logm(r, 1, "sees-list full (%zu entries)", r->sees_cap);
@@ -1064,5 +1146,6 @@ void lltd_media_disconnect(struct lltd_responder *r)
 	r->block_deadline = r->hello_deadline = r->inactivity_deadline = 0;
 	r->have_mapper = 0;
 	topo_enter_quiescent(r);
+	r->observe_off = 0;     /* maybe another port or switch now */
 	logm(r, 2, "link down, all sessions cleared");
 }

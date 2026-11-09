@@ -1,3 +1,4 @@
 # Options for lltd (see "lltd --help" and "man lltd").
 # -i auto = interface of the default route; repeat -i for several interfaces.
 LLTD_OPTS="-i auto -w"
+# --observe auto|yes|no: see "lltd --help" (default auto)
