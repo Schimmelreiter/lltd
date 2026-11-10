@@ -7,7 +7,7 @@ LICENSE = "GPL-3.0-or-later"
 LIC_FILES_CHKSUM = "file://LICENSE;md5=1ebbd3e34237af26da5dc08a4e440464"
 
 SRC_URI = "git://github.com/Schimmelreiter/lltd.git;protocol=https;branch=master"
-SRCREV = "2047047b97dc6e24594c7d82d1509aa42cf322a7"
+SRCREV = "b3a3a74f0827f668d5dfaf3ac3be0225fb7d84e1"
 PV = "1.0.0+git"
 
 # OE 5.1 and newer (UNPACKDIR, like oe-alliance 6.0); older releases: ${WORKDIR}/git
