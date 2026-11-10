@@ -39,11 +39,12 @@ the Microsoft "Rally" porting kit (lld2d); it is still in the git history.
   unicast frames to foreign addresses even in promiscuous mode.
 * Observation self-check (`--observe auto`, default): if during a topology
   session no probe of another responder ever reaches a test address this
-  responder has trained (8 rounds), the interface cannot observe. From the
-  next session on lltd refuses Emits with Train frames, so a mapper treats it
-  as "cannot observe" and uses it only as probe sender and destination,
-  instead of getting invalid rounds. A link change or restart clears it;
-  `--observe yes|no` forces the behaviour.
+  responder has trained (8 rounds), lltd logs that the interface cannot
+  observe (its switch drops unicast frames to foreign addresses). It still
+  executes Train emits, so a mapper can use it as "c" and derive the result
+  from the probes that did not reach the root. `--observe no` refuses Emits
+  with Train frames (for mappers that cannot handle such responders),
+  `--observe yes` disables the check.
 * Promiscuous mode only while a mapper is associated (Command/Emit state).
 * No dependencies besides the C library; about 40 KB on MIPS.
 
@@ -68,8 +69,8 @@ lltd [options] -i <interface> [-i <interface> ...]
       --no-fdb             do not register Train sources (bridge FDB or
                            unicast address list of the interface)
       --fdb-hold MS        how long a Train source stays registered (default 5000)
-      --observe MODE       auto (default): stop accepting Train emits if probes to
-                           test addresses never arrive; yes; no
+      --observe MODE       auto (default): warn if probes to test addresses never
+                           arrive; yes: no check; no: refuse Train emits
   -f, --foreground         do not daemonize, log to stderr
   -s, --syslog             log to syslog (default when daemonized)
   -p, --pidfile FILE       write the process ID to FILE

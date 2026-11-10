@@ -28,12 +28,12 @@ config lltd 'main'
                  switches; without it topology rounds through this device
                  become invalid. '0' = off.
   fdb_hold       how long such an entry stays, in ms (default 5000)
-  observe        'auto' (default) = if, during a topology session, no probe
-                 of another responder ever reaches a test address this device
-                 has trained, it cannot observe (switch drops such frames);
-                 from the next session on it refuses Emits with Train frames,
-                 so the mapper uses it only as probe sender and destination.
-                 'yes' = always accept, 'no' = always refuse.
+  observe        'auto' (default) = log a warning if, during a topology
+                 session, no probe of another responder ever reaches a test
+                 address this device has trained (it cannot observe, the
+                 switch drops such frames); Train emits are still executed,
+                 the mapper derives the result. 'yes' = no check,
+                 'no' = refuse Emits with Train frames.
   speed          link speed to report in Mbit/s (default: detected; for a
                  bridge the fastest member port)
   verbose        0 = errors/warnings, 1 = info, 2 = debug, 3 = frame dump

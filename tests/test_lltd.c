@@ -784,11 +784,10 @@ static int train_round(uint16_t *seq)
 
 static void test_observe(void)
 {
-	struct desc p = { EMITEE_PROBE, 10, ME, SPOOF2 };
 	uint16_t seq;
 	int ok = 1;
 
-	/* deaf interface: no probe of another responder arrives */
+	/* deaf interface: warning, but Trains are still executed (also later) */
 	setup("observe-deaf");
 	associate();
 	seq = 100;
@@ -797,29 +796,14 @@ static void test_observe(void)
 		/* the mapper's own probe arrives (as in its self-test): does not count */
 		probe_seen(&MAPPER, &MAPPER, &SPOOF1);
 	}
-	CHECK(ok);                              /* this session is not changed */
-	CHECK(R.observe_deaf == 1 && R.observe_off == 0);
-	CHECK(train_round(&seq) == 1);
+	CHECK(ok);
+	CHECK(R.observe_deaf == 1);
 	reset(&MAPPER, TOS_TOPOLOGY);
-	CHECK(R.observe_off == 1);
-
-	/* next session: Trains refused (no Ack, no Flat), probes still emitted */
+	CHECK(R.observe_deaf == 0);
 	associate();
 	seq = 200;
-	{
-		int flats = count_tx(FN_FLAT);
-
-		CHECK(train_round(&seq) == 0);
-		CHECK(count_tx(FN_FLAT) == flats);
-	}
-	emit(0, &p, 1);
-	advance(20);
-	CHECK(count_tx(FN_PROBE) == 1);
+	CHECK(train_round(&seq) == 1);
 	reset(&MAPPER, TOS_TOPOLOGY);
-
-	/* link loss clears the state */
-	lltd_media_disconnect(&R);
-	CHECK(R.observe_off == 0);
 
 	/* healthy interface: a probe of another responder reaches X */
 	setup("observe-ok");
@@ -832,17 +816,30 @@ static void test_observe(void)
 	}
 	CHECK(R.observe_deaf == 0);
 	reset(&MAPPER, TOS_TOPOLOGY);
-	CHECK(R.observe_off == 0);
 
-	/* --observe yes / no */
-	setup("observe-modes");
+	/* --observe no: Trains refused (no Ack, no Flat), probes still emitted */
+	setup("observe-no");
 	R.observe_mode = LLTD_OBSERVE_NO;
 	associate();
 	seq = 400;
-	CHECK(train_round(&seq) == 0);
+	{
+		struct desc p = { EMITEE_PROBE, 10, ME, SPOOF2 };
+		int flats = count_tx(FN_FLAT);
+
+		CHECK(train_round(&seq) == 0);
+		CHECK(count_tx(FN_FLAT) == flats);
+		emit(0, &p, 1);
+		advance(20);
+		CHECK(count_tx(FN_PROBE) == 1);
+	}
+	/* --observe yes: no check */
+	setup("observe-yes");
 	R.observe_mode = LLTD_OBSERVE_YES;
-	R.observe_off = 1;
-	CHECK(train_round(&seq) == 1);
+	associate();
+	seq = 500;
+	for (int i = 0; i < LLTD_OBSERVE_MIN_ROUNDS + 1; i++)
+		CHECK(train_round(&seq) == 1);
+	CHECK(R.observe_deaf == 0);
 }
 
 int main(void)

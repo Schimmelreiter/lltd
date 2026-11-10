@@ -56,10 +56,10 @@ additional unicast address of the interface otherwise).
 How long such a registration stays (default 5000 ms).
 .TP
 .BI \-\-observe " auto|yes|no"
-auto (default): if no probe of another responder reaches a trained test
-address during the first 8 rounds of a topology session, refuse Emits with
-Train frames from the next session on (the interface cannot observe).
-yes: always accept. no: always refuse.
+auto (default): log a warning if no probe of another responder reaches a
+trained test address during the first 8 rounds of a topology session (the
+interface cannot observe); Train emits are still executed.
+yes: no check. no: refuse Emits with Train frames.
 .TP
 .BR \-f ", " \-\-foreground
 Do not daemonize; log to standard error unless \fB\-s\fR is given.

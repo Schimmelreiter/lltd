@@ -125,19 +125,16 @@ static int fdb_contains(const struct lltd_responder *r, const mac_t *mac)
 /* Some interfaces never receive unicast frames to foreign addresses, even
  * in promiscuous mode (e.g. DSA user ports of set-top boxes, whose switch
  * only forwards known addresses to the CPU). As "c" of a round such a
- * responder reports an empty sees-list and the round is invalid. In auto
- * mode lltd counts its rounds with Train frames and the probes of other
- * responders (not the mapper itself) that reach the trained addresses; if
- * there is none after LLTD_OBSERVE_MIN_ROUNDS rounds, it refuses Emits
- * with Train frames from the next topology session on, so that a mapper
- * treats it as "cannot observe" and still uses it as probe sender. */
+ * responder reports an empty sees-list. In auto mode lltd counts its rounds
+ * with Train frames and the probes of other responders (not the mapper
+ * itself) that reach the trained addresses; if there is none after
+ * LLTD_OBSERVE_MIN_ROUNDS rounds, it logs a warning. It keeps executing
+ * Train emits: a mapper can still use such a responder as "c" and derive the
+ * result from the probes that did not reach the root. Mode "no" refuses
+ * Emits with Train frames, for mappers that cannot handle such responders. */
 static int observing(const struct lltd_responder *r)
 {
-	switch (r->observe_mode) {
-	case LLTD_OBSERVE_YES: return 1;
-	case LLTD_OBSERVE_NO: return 0;
-	default: return !r->observe_off;
-	}
+	return r->observe_mode != LLTD_OBSERVE_NO;
 }
 
 static void observe_round(struct lltd_responder *r)
@@ -147,8 +144,8 @@ static void observe_round(struct lltd_responder *r)
 	    r->obs_rounds >= LLTD_OBSERVE_MIN_ROUNDS && r->obs_hits == 0) {
 		r->observe_deaf = 1;
 		logm(r, 1, "no probe from another responder reached a trained test address in %u rounds: "
-		     "this interface cannot observe; Emits with Train frames are refused from the next "
-		     "topology session on (option --observe yes overrides this)", r->obs_rounds);
+		     "this interface cannot observe (the switch drops unicast frames to foreign "
+		     "addresses); see --observe", r->obs_rounds);
 	}
 }
 
@@ -165,8 +162,6 @@ static void observe_hit(struct lltd_responder *r, const struct lltd_frame *f)
 
 static void observe_session_end(struct lltd_responder *r)
 {
-	if (r->observe_deaf)
-		r->observe_off = 1;
 	r->observe_deaf = 0;
 	r->obs_rounds = r->obs_hits = 0;
 	r->obs_refused_logged = 0;
@@ -456,7 +451,7 @@ static void rx_emit(struct lltd_responder *r, const struct lltd_frame *f, uint64
 	}
 	if (has_train && !observing(r)) {
 		if (!r->obs_refused_logged)
-			logm(r, 2, "Emit with Train frames refused: this interface cannot observe");
+			logm(r, 2, "Emit with Train frames refused (--observe no)");
 		r->obs_refused_logged = 1;
 		return;
 	}
@@ -1146,6 +1141,5 @@ void lltd_media_disconnect(struct lltd_responder *r)
 	r->block_deadline = r->hello_deadline = r->inactivity_deadline = 0;
 	r->have_mapper = 0;
 	topo_enter_quiescent(r);
-	r->observe_off = 0;     /* maybe another port or switch now */
 	logm(r, 2, "link down, all sessions cleared");
 }
