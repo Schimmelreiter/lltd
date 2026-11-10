@@ -115,8 +115,61 @@ jobs:
           name: pkg-openatv-${{ matrix.arch }}
           path: dist/
 
+  # Raspberry Pi OS / Debian on ARM: arm64 (Pi 3/4/5, 64 bit) and armhf
+  # built for ARMv6 + VFPv2, so it also runs on Pi 1 / Zero (Raspberry Pi
+  # OS armhf is ARMv6) and on every ARMv7 Debian armhf system.
+  raspberrypi:
+    needs: test
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - arch: arm64
+            target: aarch64-linux-gnu.2.17
+            cpu: cortex_a53
+            qemu: aarch64
+            sysroot: aarch64-linux-gnu
+          - arch: armhf
+            target: arm-linux-gnueabihf.2.17
+            cpu: arm1176jzf_s
+            qemu: arm
+            sysroot: arm-linux-gnueabihf
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install zig
+        run: python3 -m pip install --quiet --break-system-packages ziglang==$ZIG_VERSION
+      - name: Build
+        run: |
+          make lltd VERSION=$VERSION CC="python3 -m ziglang cc -target ${{ matrix.target }} -mcpu=${{ matrix.cpu }}" \
+            CFLAGS="-O2" LDFLAGS="-s"
+          file lltd
+          readelf -A lltd | grep -E 'Tag_CPU_arch:|Tag_FP_arch:' || true
+          objdump -T lltd | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -n 1
+      - name: Smoke test (qemu-user)
+        run: |
+          docker run --rm -v "$PWD:/w" -w /w debian:trixie sh -ec '
+            apt-get update -qq
+            apt-get install -y -qq qemu-user libc6-${{ matrix.arch }}-cross >/dev/null
+            qemu-${{ matrix.qemu }} -L /usr/${{ matrix.sysroot }} ./lltd -V'
+      - name: Package
+        run: |
+          r=pkgroot
+          install -D -m 0755 lltd $r/usr/sbin/lltd
+          install -D -m 0644 doc/lltd.8 $r/usr/share/man/man8/lltd.8
+          gzip -9n $r/usr/share/man/man8/lltd.8
+          install -D -m 0644 files/debian/lltd.service $r/usr/lib/systemd/system/lltd.service
+          install -D -m 0644 files/debian/lltd.default $r/etc/default/lltd
+          install -D -m 0644 README.md $r/usr/share/doc/lltd/README.md
+          sh tools/mkpkg.sh deb lltd "$VERSION-$GITHUB_RUN_NUMBER" ${{ matrix.arch }} $r dist \
+            "Link Layer Topology Discovery (LLTD) responder" \
+            -d "libc6 (>= 2.17)" -s files/debian/scripts -c /etc/default/lltd
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pkg-raspberrypi-${{ matrix.arch }}
+          path: dist/
+
   publish:
-    needs: [debian, openatv]
+    needs: [debian, openatv, raspberrypi]
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     steps:
@@ -131,8 +184,8 @@ jobs:
           ls -la dist
           gh release delete packages --yes --cleanup-tag -R "$GITHUB_REPOSITORY" 2>/dev/null || true
           gh release create packages dist/* -R "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
-            --title "Packages (Debian, OpenATV)" \
-            --notes "Built from $GITHUB_SHA. Debian: \`apt install ./lltd_*_amd64.deb\`. OpenATV: \`opkg install /tmp/lltd_*_<arch>.ipk\`. OpenWrt: see Schimmelreiter/openwrt-feed."
+            --title "Packages (Debian amd64/arm64/armhf, OpenATV)" \
+            --notes "Built from $GITHUB_SHA. Debian / Raspberry Pi OS: \`apt install ./lltd_*_<amd64|arm64|armhf>.deb\`. OpenATV: \`opkg install /tmp/lltd_*_<arch>.ipk\`. OpenWrt: see Schimmelreiter/openwrt-feed."
       - name: Branch "packages"
         run: |
           mkdir pub && cp dist/* pub/ && cd pub

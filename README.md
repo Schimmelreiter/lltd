@@ -86,6 +86,7 @@ lltd [options] -i <interface> [-i <interface> ...]
 |---|---|---|
 | OpenWrt 25.12 / 24.10 | [openwrt-feed](https://github.com/Schimmelreiter/openwrt-feed) (`lltd`) | procd, UCI `/etc/config/lltd` |
 | Debian (amd64) | `lltd_*_amd64.deb` (release `packages`) | systemd, `/etc/default/lltd` |
+| Raspberry Pi OS / Debian ARM (`arm64`; `armhf` for ARMv6+, also Pi 1/Zero) | `lltd_*_arm64.deb`, `lltd_*_armhf.deb` (release `packages`) | systemd, `/etc/default/lltd` |
 | OpenATV / Enigma2 (`cortexa15hf-neon-vfpv4`, `mips32el`) | `lltd_*.ipk` (release `packages`) | SysV init, `/etc/default/lltd` |
 
 The Debian and OpenATV packages are built by
